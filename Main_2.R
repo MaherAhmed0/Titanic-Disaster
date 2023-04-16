@@ -129,7 +129,6 @@ Bands <- c(0, 10, 20, 30, 40, 50, 60, 70, 80, Inf)
 Data$Age_Band <- cut(Data$Age, Bands)
 Test_Data$Age_Band <- cut(Test_Data$Age, Bands)
 
-
 Data <- Data %>% 
   group_by(Pclass, Sex) %>% 
   mutate(Age_mean = mean(Age_Band, na.rm = TRUE)) %>% 

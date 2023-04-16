@@ -25,7 +25,7 @@ summary(Test_Data)
 hist(Train_Data$Survived)
 
 print("Missing or null values column wise")
-sapply(Train_Data,function(x) sum(is.na(x)))
+sapply(Data,function(x) sum(is.na(x)))
 sapply(Test_Data,function(x) sum(is.na(x)))
 
 NA_Cols <- which(colSums(is.na(Train_Data)) > 0)
@@ -70,17 +70,30 @@ ggplot(Data, aes(x=Age, fill=factor(Survived))) +
   labs(x="Age", y="Count") + 
   theme_bw()
 
+Numeric_Data <- which(sapply(Train_Data, is.numeric)) #index vector numeric variables
+cat('There are', length(Numeric_Data), 'numeric variables')
+
+All_Num_Data <- Train_Data[, Numeric_Data]
+Corr_Num_Data <- cor(All_Num_Data, use="pairwise.complete.obs")
+
+Data_Sorted <- as.matrix(sort(Corr_Num_Data[,'Survived'], decreasing = TRUE))
+
+# Select only high correlations
+High_Corr <- names(which(apply(Data_Sorted, 1, function(x) abs(x) > 0.1)))
+Corr_Table <- Corr_Num_Data[High_Corr, High_Corr]
+
+C <- cor(Corr_Table)
+
+corrplot(C, method="circle")
+
+corrplot(C, method="pie")
+
+corrplot(C, method="number")
 ##################################
 ###------ Cleaning Data -------###
 ##################################
-Data <- Train_Data[, !(colnames(Train_Data) %in% c("PassengerId","Ticket", "Cabin"))]
-Test_Data <- Test_Data[, !(colnames(Test_Data) %in% c("Ticket", "Cabin"))]
-
-# Data <- rbind(Train_Data, Test_Data)
-
-# rm(Train_Data)
-# rm(Test_Data)
-
+Data <- Train_Data
+##########################  Name  ##########################
 # Grab title from passengers names
 Data$Title <- gsub('(.*, )|(\\..*)', '', Data$Name)
 Test_Data$Title <- gsub('(.*, )|(\\..*)', '', Test_Data$Name)
@@ -106,80 +119,123 @@ table(Data$Sex, Data$Title)
 Data$Title <- as.integer(factor(Data$Title))
 Test_Data$Title <- as.integer(factor(Test_Data$Title))
 
-Data <- Data[, !(colnames(Data) %in% c("Name"))]
-Test_Data <- Test_Data[, !(colnames(Test_Data) %in% c("Name", "Survived"))]
+##########################  Sex  ##########################
+Data$Sex <- ifelse(Data$Sex == 'female', 1, 0)
+Test_Data$Sex <- ifelse(Test_Data$Sex == 'female', 1, 0)
 
-Data$Sex <- as.integer(factor(Data$Sex))
-Test_Data$Sex <- as.integer(factor(Test_Data$Sex))
-
+##########################  Age  ##########################
 Data$Age <- as.integer(Data$Age)
 Test_Data$Age <- as.integer(Test_Data$Age)
 
-Data$Family_Size <- Data$SibSp + Data$Parch + 1
-Test_Data$Family_Size <- Test_Data$SibSp + Test_Data$Parch + 1
-
-Data <- Data[, !(colnames(Data) %in% c("SibSp","Parch"))]
-Test_Data <- Test_Data[, !(colnames(Test_Data) %in% c("SibSp","Parch"))]
-
-mode_value <- names(which.max(table(Data$take.off)))
-Data$take.off <- ifelse(is.na(Data$take.off), mode_value, Data$take.off)
-
-Data$take.off <- as.integer(factor(Data$take.off))
-
-
-
-mode_value <- names(which.max(table(Test_Data$take.off)))
-Test_Data$take.off <- ifelse(is.na(Test_Data$take.off), mode_value, Test_Data$take.off)
-
-Test_Data$take.off <- as.integer(factor(Test_Data$take.off))
-
-# Set a random seed
 set.seed(129)
 
 # Perform mice imputation, excluding certain less-than-useful variables:
 mice_model <- mice(Data, method='rf')
-
-Data <- complete(mice_model)
-
-# Set a random seed
-set.seed(129)
-
-# Perform mice imputation, excluding certain less-than-useful variables:
 mice_model_t <- mice(Test_Data, method='rf')
 
+Data <- complete(mice_model)
 Test_Data <- complete(mice_model_t)
 
+Data$Age_Band <- cut(Data$Age, breaks = 5)
+Test_Data$Age_Band <- cut(Test_Data$Age, breaks = 5)
 
+Data$Age <- ifelse(Data$Age <= 16, 0,
+                      ifelse(Data$Age > 16 & Data$Age <= 32, 1,
+                             ifelse(Data$Age > 32 & Data$Age <= 48, 2,
+                                    ifelse(Data$Age > 48 & Data$Age <= 64, 3, 4))))
+Test_Data$Age <- ifelse(Test_Data$Age <= 16, 0,
+                   ifelse(Test_Data$Age > 16 & Test_Data$Age <= 32, 1,
+                          ifelse(Test_Data$Age > 32 & Test_Data$Age <= 48, 2,
+                                 ifelse(Test_Data$Age > 48 & Test_Data$Age <= 64, 3, 4))))
+
+##########################  SibSp & Parch  ##########################
+Data$Family_Size <- Data$SibSp + Data$Parch + 1
+Test_Data$Family_Size <- Test_Data$SibSp + Test_Data$Parch + 1
+
+Data$Family_Size[Data$Family_Size == 1] <- 0
+Test_Data$Family_Size[Test_Data$Family_Size == 1] <- 0
+
+Data$Is_Alone <- 1
+Test_Data$Is_Alone <- 1
+
+Data$Is_Alone[Data$Family_Size >= 1] <- 0
+Test_Data$Is_Alone[Test_Data$Family_Size >= 1] <- 0
+
+##########################  take.off  ##########################
+mode_value <- names(which.max(table(Data$take.off)))
+mode_value_t <- names(which.max(table(Test_Data$take.off)))
+
+Data$take.off <- ifelse(Data$take.off %in% c("", NA), mode_value, Data$take.off)
+Test_Data$take.off <- ifelse(Test_Data$take.off %in% c("", NA), mode_value, Test_Data$take.off)
+
+Data$take.off <- ifelse(Data$take.off == 'S', 0,
+                        ifelse(Data$take.off == 'C', 1,
+                               ifelse(Data$take.off == 'Q', 2, NA)))
+
+Test_Data$take.off <- ifelse(Test_Data$take.off == 'S', 0,
+                        ifelse(Test_Data$take.off == 'C', 1,
+                               ifelse(Test_Data$take.off == 'Q', 2, NA)))
+
+##########################  Age_Class  ##########################
+Data$Age_Class <- Data$Age * Data$Pclass
+Test_Data$Age_Class <- Test_Data$Age * Test_Data$Pclass
+
+##########################  Fare  ##########################
+Data$FareBand <- as.integer(cut(Data$Fare, breaks = quantile(Data$Fare, probs = seq(0, 1, 0.25)),
+                                include.lowest = TRUE))
+
+Test_Data$FareBand <- as.integer(cut(Test_Data$Fare,
+                                breaks = quantile(Test_Data$Fare, probs = seq(0, 1, 0.25)),
+                                include.lowest = TRUE))
+
+Data$Fare <- ifelse(Data$Fare <= 7.91, 0, 
+                       ifelse(Data$Fare <= 14.454, 1, 
+                              ifelse(Data$Fare <= 31, 2, 3)))
+
+Test_Data$Fare <- ifelse(Test_Data$Fare <= 7.91, 0, 
+                    ifelse(Test_Data$Fare <= 14.454, 1, 
+                           ifelse(Test_Data$Fare <= 31, 2, 3)))
+
+###################################################################################
+rm(Train_Data)
+
+Data <- Data[, !(colnames(Data) %in% c("PassengerId","Name","Ticket","Family_Size", "FareBand",
+                                       "Cabin","SibSp","Parch","Age_Band"))]
+Test_Data <- Test_Data[, !(colnames(Test_Data) %in% c("Survived","Name","Ticket","Family_Size",
+                                                      "FareBand","Cabin","SibSp","Parch","Age_Band"))]
+
+##################################
+### -------- Modeling -------- ###
+##################################
 set.seed(754)
 
-
-# Build the model (note: not all possible variables are used)
 rf_model <- randomForest(factor(Survived) ~ Pclass + Sex + Age + 
-                           Fare + take.off + Title + 
-                           Family_Size, data = Data)
+                           Fare + take.off + Title + Age_Class +
+                           Is_Alone, data = Data)
 
-split <- sample.split(Data, SplitRatio = 0.7)
-train_cl <- subset(Data, split == "TRUE")
-test_cl <- subset(Data, split == "FALSE")
+tree_model <- rpart(factor(Survived) ~ Pclass + Sex + Age + 
+                      Fare + take.off + Title + Age_Class +
+                      Is_Alone, data = Data, method = "class")
 
-knn_model <- knn(train = Data, test = Test_Data, cl = Data$Survived, k = 4)
+
+prediction_rf <- predict(rf_model, Test_Data)
+
+prediction_dt <- predict(tree_model, Test_Data, type = "class")
 
 # Show model error
 plot(rf_model, ylim=c(0,0.36))
 legend('topright', colnames(rf_model$err.rate), col=1:3, fill=1:3)
 
-prediction <- predict(rf_model, Test_Data)
+plot(tree_model)
+text(tree_model)
 
-
-# Save the solution to a dataframe with two columns: PassengerId and Survived (prediction)
-solution <- data.frame(PassengerID = Test_Data$PassengerId, Survived = prediction)
-solution_knn <- data.frame(PassengerID = Test_Data$PassengerId, Survived = knn_model)
+# Save the solution to a data frame with two columns: Passenger Id and Survived (prediction)
+solution_rf <- data.frame(PassengerID = Test_Data$PassengerId, Survived = prediction_rf)
+solution_dt <- data.frame(PassengerID = Test_Data$PassengerId, Survived = prediction_dt)
 
 # Write the solution to file
-write.csv(solution, file = 'rf_mod_Solution.csv', row.names = F)
-write.csv(solution_knn, file = 'knn_model_Solution.csv', row.names = F)
-
-
+write.csv(solution_rf, file = 'RF_model.csv', row.names = F)
+write.csv(solution_dt, file = 'DT_model.csv', row.names = F)
 
 Train <- Data[1:891,]
 Test <- Data[892:1309,]
