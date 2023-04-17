@@ -4,8 +4,6 @@
 Train_Data <- read.csv("train.csv", stringsAsFactors = F)
 Test_Data  <- read.csv("test.csv", stringsAsFactors = F)
 
-Test_Data$Survived <- NA
-
 ##################################
 ###------ Exploring Data ------###
 ##################################
@@ -70,29 +68,12 @@ ggplot(Data, aes(x=Age, fill=factor(Survived))) +
   labs(x="Age", y="Count") + 
   theme_bw()
 
-Numeric_Data <- which(sapply(Train_Data, is.numeric)) #index vector numeric variables
-cat('There are', length(Numeric_Data), 'numeric variables')
 
-All_Num_Data <- Train_Data[, Numeric_Data]
-Corr_Num_Data <- cor(All_Num_Data, use="pairwise.complete.obs")
-
-Data_Sorted <- as.matrix(sort(Corr_Num_Data[,'Survived'], decreasing = TRUE))
-
-# Select only high correlations
-High_Corr <- names(which(apply(Data_Sorted, 1, function(x) abs(x) > 0.1)))
-Corr_Table <- Corr_Num_Data[High_Corr, High_Corr]
-
-C <- cor(Corr_Table)
-
-corrplot(C, method="circle")
-
-corrplot(C, method="pie")
-
-corrplot(C, method="number")
 ##################################
 ###------ Cleaning Data -------###
 ##################################
 Data <- Train_Data
+rm(Train_Data)
 ##########################  Name  ##########################
 # Grab title from passengers names
 Data$Title <- gsub('(.*, )|(\\..*)', '', Data$Name)
@@ -123,31 +104,6 @@ Test_Data$Title <- as.integer(factor(Test_Data$Title))
 Data$Sex <- ifelse(Data$Sex == 'female', 1, 0)
 Test_Data$Sex <- ifelse(Test_Data$Sex == 'female', 1, 0)
 
-##########################  Age  ##########################
-Data$Age <- as.integer(Data$Age)
-Test_Data$Age <- as.integer(Test_Data$Age)
-
-set.seed(129)
-
-# Perform mice imputation, excluding certain less-than-useful variables:
-mice_model <- mice(Data, method='rf')
-mice_model_t <- mice(Test_Data, method='rf')
-
-Data <- complete(mice_model)
-Test_Data <- complete(mice_model_t)
-
-Data$Age_Band <- cut(Data$Age, breaks = 5)
-Test_Data$Age_Band <- cut(Test_Data$Age, breaks = 5)
-
-Data$Age <- ifelse(Data$Age <= 16, 0,
-                      ifelse(Data$Age > 16 & Data$Age <= 32, 1,
-                             ifelse(Data$Age > 32 & Data$Age <= 48, 2,
-                                    ifelse(Data$Age > 48 & Data$Age <= 64, 3, 4))))
-Test_Data$Age <- ifelse(Test_Data$Age <= 16, 0,
-                   ifelse(Test_Data$Age > 16 & Test_Data$Age <= 32, 1,
-                          ifelse(Test_Data$Age > 32 & Test_Data$Age <= 48, 2,
-                                 ifelse(Test_Data$Age > 48 & Test_Data$Age <= 64, 3, 4))))
-
 ##########################  SibSp & Parch  ##########################
 Data$Family_Size <- Data$SibSp + Data$Parch + 1
 Test_Data$Family_Size <- Test_Data$SibSp + Test_Data$Parch + 1
@@ -176,11 +132,10 @@ Test_Data$take.off <- ifelse(Test_Data$take.off == 'S', 0,
                         ifelse(Test_Data$take.off == 'C', 1,
                                ifelse(Test_Data$take.off == 'Q', 2, NA)))
 
-##########################  Age_Class  ##########################
-Data$Age_Class <- Data$Age * Data$Pclass
-Test_Data$Age_Class <- Test_Data$Age * Test_Data$Pclass
-
 ##########################  Fare  ##########################
+Data$Fare <- ifelse(is.na(Data$Fare), mean(Data$Fare, na.rm = TRUE), Data$Fare)
+Test_Data$Fare <- ifelse(is.na(Test_Data$Fare), mean(Test_Data$Fare, na.rm = TRUE), Test_Data$Fare)
+
 Data$FareBand <- as.integer(cut(Data$Fare, breaks = quantile(Data$Fare, probs = seq(0, 1, 0.25)),
                                 include.lowest = TRUE))
 
@@ -197,12 +152,77 @@ Test_Data$Fare <- ifelse(Test_Data$Fare <= 7.91, 0,
                            ifelse(Test_Data$Fare <= 31, 2, 3)))
 
 ###################################################################################
-rm(Train_Data)
 
+Data <- Data[, !(colnames(Data) %in% c("PassengerId","Name","Ticket",
+                                       "Cabin","SibSp","Parch"))]
+
+Test_Data <- Test_Data[, !(colnames(Test_Data) %in% c("Name","Ticket","Cabin",
+                                                      "SibSp","Parch"))]
+###################################################################################
+##########################  Age  ##########################
+Data$Age <- as.integer(Data$Age)
+Test_Data$Age <- as.integer(Test_Data$Age)
+
+# Data$Age <- ave(Data$Age, Data$Pclass, Data$Sex, FUN = function(x) ifelse(is.na(x), mean(x, na.rm = TRUE), x))
+# Test_Data$Age <- ave(Test_Data$Age, Test_Data$Pclass, Test_Data$Sex, FUN = function(x) ifelse(is.na(x), mean(x, na.rm = TRUE), x))
+
+set.seed(129)
+# Perform mice imputation, excluding certain less-than-useful variables:
+mice_model <- mice(Data, method='rf')
+mice_model_t <- mice(Test_Data, method='rf')
+
+Data <- complete(mice_model)
+Test_Data <- complete(mice_model_t)
+
+Data$Age_Band <- cut(Data$Age, breaks = 7)
+Test_Data$Age_Band <- cut(Test_Data$Age, breaks = 7)
+
+Bands <- aggregate(Survived ~ Age_Band, data=Data, FUN=mean)
+Bands <- Bands[order(Bands$Age_Band), ]
+
+Data$Age <- ifelse(Data$Age <= 11, 0,
+                   ifelse(Data$Age > 11 & Data$Age <= 22, 1,
+                          ifelse(Data$Age > 22 & Data$Age <= 34, 2,
+                                 ifelse(Data$Age > 34 & Data$Age <= 45, 3,
+                                        ifelse(Data$Age > 45 & Data$Age <= 57, 4,
+                                               ifelse(Data$Age > 57 & Data$Age <= 68, 5, 6))))))
+Test_Data$Age <- ifelse(Test_Data$Age <= 11, 0,
+                        ifelse(Test_Data$Age > 11 & Test_Data$Age <= 22, 1,
+                               ifelse(Test_Data$Age > 22 & Test_Data$Age <= 34, 2,
+                                      ifelse(Test_Data$Age > 34 & Test_Data$Age <= 45, 3,
+                                             ifelse(Test_Data$Age > 45 & Test_Data$Age <= 57, 4,
+                                                    ifelse(Test_Data$Age > 57 & Test_Data$Age <= 68, 5, 6))))))
+
+##########################  Age_Class  ##########################
+Data$Age_Class <- Data$Age * Data$Pclass
+Test_Data$Age_Class <- Test_Data$Age * Test_Data$Pclass
+
+###################################################################################
 Data <- Data[, !(colnames(Data) %in% c("PassengerId","Name","Ticket","Family_Size", "FareBand",
                                        "Cabin","SibSp","Parch","Age_Band"))]
-Test_Data <- Test_Data[, !(colnames(Test_Data) %in% c("Survived","Name","Ticket","Family_Size",
-                                                      "FareBand","Cabin","SibSp","Parch","Age_Band"))]
+
+Test_Data <- Test_Data[, !(colnames(Test_Data) %in% c("Name","Ticket","Family_Size","FareBand",
+                                                      "Cabin","SibSp","Parch","Age_Band"))]
+##################################
+### ------ Correlation ------- ###
+##################################
+Numeric_Data <- which(sapply(Data, is.numeric)) #index vector numeric variables
+cat('There are', length(Numeric_Data), 'numeric variables')
+
+All_Num_Data <- Data[, Numeric_Data]
+Corr_Num_Data <- cor(All_Num_Data, use="pairwise.complete.obs")
+
+Data_Sorted <- as.matrix(sort(Corr_Num_Data[,'Survived'], decreasing = TRUE))
+
+# Select only high correlations
+High_Corr <- names(which(apply(Data_Sorted, 1, function(x) abs(x) > 0.001)))
+Corr_Table <- Corr_Num_Data[High_Corr, High_Corr]
+
+C <- cor(Corr_Table)
+
+corrplot(C, method="pie")
+
+corrplot(C, method="number")
 
 ##################################
 ### -------- Modeling -------- ###
@@ -212,22 +232,21 @@ set.seed(754)
 rf_model <- randomForest(factor(Survived) ~ Pclass + Sex + Age + 
                            Fare + take.off + Title + Age_Class +
                            Is_Alone, data = Data)
-
-tree_model <- rpart(factor(Survived) ~ Pclass + Sex + Age + 
+dt_model <- rpart(factor(Survived) ~ Pclass + Sex + Age + 
                       Fare + take.off + Title + Age_Class +
                       Is_Alone, data = Data, method = "class")
 
 
 prediction_rf <- predict(rf_model, Test_Data)
 
-prediction_dt <- predict(tree_model, Test_Data, type = "class")
+prediction_dt <- predict(dt_model, Test_Data, type = "class")
 
 # Show model error
 plot(rf_model, ylim=c(0,0.36))
 legend('topright', colnames(rf_model$err.rate), col=1:3, fill=1:3)
 
-plot(tree_model)
-text(tree_model)
+plot(dt_model)
+text(dt_model)
 
 # Save the solution to a data frame with two columns: Passenger Id and Survived (prediction)
 solution_rf <- data.frame(PassengerID = Test_Data$PassengerId, Survived = prediction_rf)
@@ -237,6 +256,5 @@ solution_dt <- data.frame(PassengerID = Test_Data$PassengerId, Survived = predic
 write.csv(solution_rf, file = 'RF_model.csv', row.names = F)
 write.csv(solution_dt, file = 'DT_model.csv', row.names = F)
 
-Train <- Data[1:891,]
-Test <- Data[892:1309,]
+
 
